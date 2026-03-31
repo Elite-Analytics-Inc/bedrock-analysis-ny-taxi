@@ -1,0 +1,26 @@
+{
+  "analysis_name": "ny-taxi",
+  "description": "NYC Yellow Taxi trip analysis — fare trends, zone popularity, tip behaviour",
+  "inputs": [
+    "bedrock.nyc.yellow_taxi"
+  ],
+  "params_schema": {
+    "type": "object",
+    "properties": {
+      "year": {
+        "type": "integer",
+        "description": "Year to analyse (e.g. 2023)",
+        "default": 2023
+      },
+      "min_trips": {
+        "type": "integer",
+        "description": "Minimum trips per zone to include in zone ranking",
+        "default": 500
+      }
+    }
+  },
+  "resources": {
+    "requests": { "cpu": "1", "memory": "2Gi" },
+    "limits":   { "cpu": "4", "memory": "6Gi" }
+  }
+}
