@@ -12,7 +12,7 @@ FROM results.hourly_trips ORDER BY hour_of_day
 ```
 
 ```sql top_zones
-SELECT zone_id::INT AS zone_id,
+SELECT zone_id::VARCHAR AS zone_id,
        pickups::BIGINT AS pickups,
        avg_fare::DOUBLE AS avg_fare,
        tip_pct::DOUBLE AS tip_pct
@@ -27,7 +27,7 @@ FROM results.tip_buckets
 ```
 
 ```sql daily_revenue
-SELECT trip_date::DATE AS trip_date,
+SELECT REPLACE(trip_date, '"', '')::DATE AS trip_date,
        trips::BIGINT AS trips,
        total_revenue::DOUBLE AS total_revenue,
        avg_fare::DOUBLE AS avg_fare
@@ -47,18 +47,18 @@ FROM results.tip_buckets
 ```
 
 ```sql revenue_filtered
-SELECT trip_date::DATE AS trip_date,
+SELECT REPLACE(trip_date, '"', '')::DATE AS trip_date,
        trips::BIGINT AS trips,
        total_revenue::DOUBLE AS total_revenue,
        avg_fare::DOUBLE AS avg_fare
 FROM results.daily_revenue
-WHERE trip_date::DATE >= '${inputs.date_range.start}'::DATE
-  AND trip_date::DATE <= '${inputs.date_range.end}'::DATE
+WHERE REPLACE(trip_date, '"', '')::DATE >= '${inputs.date_range.start}'::DATE
+  AND REPLACE(trip_date, '"', '')::DATE <= '${inputs.date_range.end}'::DATE
 ORDER BY trip_date
 ```
 
 ```sql top_zones_filtered
-SELECT zone_id::INT AS zone_id,
+SELECT zone_id::VARCHAR AS zone_id,
        pickups::BIGINT AS pickups,
        avg_fare::DOUBLE AS avg_fare,
        tip_pct::DOUBLE AS tip_pct
@@ -71,12 +71,10 @@ LIMIT 20
 <h1 style="margin-bottom:0.25rem;">NYC Yellow Taxi</h1>
 <p style="color:#64748b; margin-top:0;">2022 trip analysis — fare trends, zone popularity, tip behaviour</p>
 
-<Grid cols=4 gapSize="md">
-  <BigValue data={summary} value="total_trips" title="Total Trips" fmt="num0" />
-  <BigValue data={summary} value="total_revenue" title="Total Revenue" fmt="usd0" />
-  <BigValue data={summary} value="avg_fare" title="Avg Fare" fmt="usd2" />
-  <BigValue data={tip_summary} value="tipped_pct" title="Trips With Tip" fmt="num1" suffix="%" />
-</Grid>
+<BigValue data={summary} value="total_trips" title="Total Trips" fmt="num0" />
+<BigValue data={summary} value="total_revenue" title="Total Revenue" fmt="usd0" />
+<BigValue data={summary} value="avg_fare" title="Avg Fare" fmt="usd2" />
+<BigValue data={tip_summary} value="tipped_pct" title="Trips With Tip" fmt="num1" suffix="%" />
 
 ## Hourly Trip Patterns
 
