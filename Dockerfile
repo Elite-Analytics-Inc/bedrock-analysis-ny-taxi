@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Python deps: duckdb (includes iceberg + httpfs extensions), fastavro
 RUN pip install --no-cache-dir \
-    duckdb==1.2.2 \
+    duckdb==1.5.1 \
     fastavro==1.9.7
 
 # Bedrock SDK — copied in from the monorepo base image layer at build time.
