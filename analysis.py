@@ -116,9 +116,13 @@ write_conn.execute(f"""
 out = job.output_path  # e.g. s3://bedrock-lake/analytics/bedrock/<job_id>/data
 
 def write_parquet(name, rows, columns):
-    import json
+    import json, datetime
+    def _default(o):
+        if isinstance(o, (datetime.date, datetime.datetime)):
+            return o.isoformat()
+        raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
     col_defs = ", ".join(f"v[{i}] AS {c}" for i, c in enumerate(columns))
-    vals = json.dumps(rows)
+    vals = json.dumps(rows, default=_default)
     write_conn.execute(f"""
         COPY (
             SELECT {col_defs}
