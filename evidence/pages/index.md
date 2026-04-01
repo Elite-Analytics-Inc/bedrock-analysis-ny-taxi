@@ -21,14 +21,14 @@ SELECT * FROM results.daily_revenue ORDER BY trip_date
 
 ```sql summary
 SELECT
-  SUM(trips)                    AS total_trips,
-  ROUND(SUM(total_revenue), 0)  AS total_revenue,
-  ROUND(AVG(avg_fare), 2)       AS avg_fare
+  SUM(trips::BIGINT)                          AS total_trips,
+  ROUND(SUM(total_revenue::DOUBLE), 0)::BIGINT AS total_revenue,
+  ROUND(AVG(avg_fare::DOUBLE), 2)              AS avg_fare
 FROM results.daily_revenue
 ```
 
 ```sql tip_summary
-SELECT ROUND(SUM(CASE WHEN tip_bucket != 'No tip' THEN pct_of_total ELSE 0 END), 1) AS tipped_pct
+SELECT ROUND(SUM(CASE WHEN tip_bucket != 'No tip' THEN pct_of_total::DOUBLE ELSE 0 END), 1) AS tipped_pct
 FROM results.tip_buckets
 ```
 
@@ -43,8 +43,8 @@ ORDER BY trip_date
 ```sql top_zones_filtered
 SELECT *
 FROM results.top_zones
-WHERE pickups >= ${inputs.min_pickups}
-ORDER BY pickups DESC
+WHERE pickups::INT >= ${inputs.min_pickups}
+ORDER BY pickups::INT DESC
 LIMIT 20
 ```
 
@@ -136,7 +136,7 @@ LIMIT 20
         radius: ['40%', '75%'],
         itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
         label: { formatter: '{b}\n{d}%' },
-        data: tip_buckets.map(r => ({ name: r.tip_bucket, value: r.trips })),
+        data: tip_buckets.map(r => ({ name: r.tip_bucket, value: Number(r.trips) })),
         color: ['#EF4444','#F59E0B','#10B981','#3B82F6','#8B5CF6','#EC4899']
       }]
     }
