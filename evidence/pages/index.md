@@ -19,7 +19,7 @@ FROM results.top_zones ORDER BY pickups DESC
 ```
 
 ```sql tip_buckets
-SELECT REPLACE(tip_bucket, '"', '') AS tip_bucket,
+SELECT REPLACE(REPLACE(tip_bucket, '"', ''), '\u2013', '–') AS tip_bucket,
        trips::BIGINT AS trips,
        pct_of_total::DOUBLE AS pct_of_total
 FROM results.tip_buckets
@@ -41,7 +41,7 @@ FROM results.daily_revenue
 ```
 
 ```sql tip_summary
-SELECT ROUND(SUM(CASE WHEN REPLACE(tip_bucket, '"', '') != 'No tip' THEN pct_of_total::DOUBLE ELSE 0 END), 1) AS tipped_pct
+SELECT ROUND(SUM(CASE WHEN REPLACE(REPLACE(tip_bucket, '"', ''), '\u2013', '–') != 'No tip' THEN pct_of_total::DOUBLE ELSE 0 END), 1) AS tipped_pct
 FROM results.tip_buckets
 ```
 
