@@ -117,14 +117,12 @@ LIMIT 20
     title="Pickups by Zone"
     colorPalette={["#F59E0B"]}
   />
-  <Group>
-    <DataTable data={top_zones_filtered} rows=20>
-      <Column id="zone_id" title="Zone" />
-      <Column id="pickups" title="Pickups" fmt="num0" />
-      <Column id="avg_fare" title="Avg Fare" fmt="usd2" />
-      <Column id="tip_pct" title="Tip %" fmt="num1" suffix="%" />
-    </DataTable>
-  </Group>
+  <DataTable data={top_zones_filtered} rows=20>
+    <Column id="zone_id" title="Zone" />
+    <Column id="pickups" title="Pickups" fmt="num0" />
+    <Column id="avg_fare" title="Avg Fare" fmt="usd2" />
+    <Column id="tip_pct" title="Tip %" fmt="num1" suffix="%" />
+  </DataTable>
 </Grid>
 
 ## Tip Distribution
@@ -143,11 +141,9 @@ LIMIT 20
       }]
     }
   } height=320 />
-  <Group>
-    <DataTable data={tip_buckets}>
-      <Column id="tip_bucket" title="Tip Range" />
-      <Column id="trips" title="Trips" fmt="num0" />
-      <Column id="pct_of_total" title="% of Total" fmt="num1" suffix="%" />
-    </DataTable>
-  </Group>
+  <DataTable data={tip_buckets}>
+    <Column id="tip_bucket" title="Tip Range" />
+    <Column id="trips" title="Trips" fmt="num0" />
+    <Column id="pct_of_total" title="% of Total" fmt="num1" suffix="%" />
+  </DataTable>
 </Grid>
