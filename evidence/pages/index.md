@@ -2,18 +2,6 @@
 title: NYC Yellow Taxi — Trip Analysis
 ---
 
-<style>
-  /* Hide Evidence chrome: sidebar, header, breadcrumbs, TOC */
-  aside, header, nav, .sidebar, .breadcrumbs, .toc,
-  [class*="sidebar"], [class*="Sidebar"],
-  [class*="header"], [class*="Header"],
-  [class*="breadcrumb"], [class*="Breadcrumb"] { display: none !important; }
-  /* Expand main content to full width */
-  main, article, .content, [class*="content"] { max-width: 100% !important; margin: 0 auto !important; }
-  /* Hide show-queries toggle */
-  [class*="query-viewer"], [class*="QueryViewer"], [class*="show-queries"] { display: none !important; }
-</style>
-
 ```sql hourly_trips
 SELECT hour_of_day::INT AS hour_of_day,
        trips::BIGINT AS trips,
