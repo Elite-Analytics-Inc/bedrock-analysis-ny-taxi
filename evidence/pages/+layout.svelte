@@ -1,3 +1,8 @@
+<script>
+  import { EvidenceDefaultLayout } from "@evidence-dev/core-components";
+  export let data;
+</script>
+
 <EvidenceDefaultLayout {data}
   hideSidebar={true}
   hideHeader={true}
@@ -9,8 +14,3 @@
 >
   <slot slot="content" />
 </EvidenceDefaultLayout>
-
-<script>
-  import { EvidenceDefaultLayout } from "@evidence-dev/core-components";
-  export let data;
-</script>
