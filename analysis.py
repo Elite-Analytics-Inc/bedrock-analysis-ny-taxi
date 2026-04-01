@@ -10,7 +10,7 @@ import os
 import sys
 
 # Bedrock SDK — injected into the container via the base image
-sys.path.insert(0, "/bedrock_sdk")
+sys.path.insert(0, "/")
 from bedrock_sdk import BedrockJob
 
 job = BedrockJob()
