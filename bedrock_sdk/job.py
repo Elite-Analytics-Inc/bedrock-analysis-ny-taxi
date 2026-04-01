@@ -30,6 +30,24 @@ class BedrockJob:
         """S3 prefix for writing Parquet output files, e.g. s3://bedrock-lake/analytics/demo/{job_id}/data"""
         return os.environ["BEDROCK_OUTPUT_PATH"]
 
+    def _fetch_polaris_token(self) -> str:
+        """Exchange BEDROCK_CATALOG_CREDENTIAL for a short-lived Polaris bearer token."""
+        import urllib.request, urllib.parse
+        base = self.catalog_url.rstrip("/").removesuffix("/api/catalog")
+        token_url = f"{base}/api/catalog/v1/oauth/tokens"
+        client_id, _, client_secret = self._catalog_credential.partition(":")
+        body = urllib.parse.urlencode({
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "scope": "PRINCIPAL_ROLE:ALL",
+        }).encode()
+        req = urllib.request.Request(token_url, data=body, method="POST")
+        req.add_header("Content-Type", "application/x-www-form-urlencoded")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            import json
+            return json.load(resp)["access_token"]
+
     def connect(self):
         """
         Return a DuckDB in-memory connection with the Iceberg catalog attached.
@@ -61,12 +79,15 @@ class BedrockJob:
                 )
             """)
 
-        client_id, _, client_secret = self._catalog_credential.partition(":")
+        # Fetch a short-lived bearer token from Polaris, then ATTACH using
+        # ENDPOINT + TOKEN (the pattern DuckDB 1.5 requires for Iceberg REST).
+        token = self._fetch_polaris_token()
+        warehouse = os.environ.get("BEDROCK_CATALOG_WAREHOUSE", "bedrock")
         conn.execute(f"""
-            ATTACH '{self.catalog_url}' AS catalog (
+            ATTACH '{warehouse}' AS catalog (
                 TYPE ICEBERG,
-                CLIENT_ID '{client_id}',
-                CLIENT_SECRET '{client_secret}'
+                ENDPOINT '{self.catalog_url}',
+                TOKEN '{token}'
             )
         """)
         return conn
