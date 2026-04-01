@@ -1,5 +1,6 @@
 ---
 title: NYC Yellow Taxi — Trip Analysis
+hide_title: true
 ---
 
 ```sql hourly_trips
@@ -18,6 +19,19 @@ SELECT * FROM results.tip_buckets
 SELECT * FROM results.daily_revenue ORDER BY trip_date
 ```
 
+```sql summary
+SELECT
+  SUM(trips)                    AS total_trips,
+  ROUND(SUM(total_revenue), 0)  AS total_revenue,
+  ROUND(AVG(avg_fare), 2)       AS avg_fare
+FROM results.daily_revenue
+```
+
+```sql tip_summary
+SELECT ROUND(SUM(CASE WHEN tip_bucket != 'No tip' THEN pct_of_total ELSE 0 END), 1) AS tipped_pct
+FROM results.tip_buckets
+```
+
 ```sql revenue_filtered
 SELECT *
 FROM results.daily_revenue
@@ -34,157 +48,106 @@ ORDER BY pickups DESC
 LIMIT 20
 ```
 
-# NYC Yellow Taxi — Trip Analysis
+<h1 style="margin-bottom:0.25rem;">NYC Yellow Taxi</h1>
+<p style="color:#64748b; margin-top:0;">2022 trip analysis — fare trends, zone popularity, tip behaviour</p>
 
-<BigValue
-  data={hourly_trips.reduce((a, r) => [{trips: (a[0]?.trips || 0) + r.trips}], [])}
-  value="trips"
-  title="Total Trips"
-  fmt="num0"
-/>
-<BigValue
-  data={top_zones}
-  value="avg_fare"
-  title="Avg Fare (Top Zones)"
-  fmt="usd2"
-  agg="mean"
-/>
-<BigValue
-  data={tip_buckets.filter(r => r.tip_bucket !== 'No tip')}
-  value="pct_of_total"
-  title="Trips With a Tip"
-  fmt="num1"
-  agg="sum"
-  suffix="%"
-/>
-<BigValue
-  data={daily_revenue.reduce((a, r) => [{total_revenue: (a[0]?.total_revenue || 0) + r.total_revenue}], [])}
-  value="total_revenue"
-  title="Total Revenue"
-  fmt="usd0"
-/>
-
----
+<Grid cols=4 gapSize="md">
+  <BigValue data={summary} value="total_trips" title="Total Trips" fmt="num0" />
+  <BigValue data={summary} value="total_revenue" title="Total Revenue" fmt="usd0" />
+  <BigValue data={summary} value="avg_fare" title="Avg Fare" fmt="usd2" />
+  <BigValue data={tip_summary} value="tipped_pct" title="Trips With Tip" fmt="num1" suffix="%" />
+</Grid>
 
 ## Hourly Trip Patterns
 
-<BarChart
-  data={hourly_trips}
-  x="hour_of_day"
-  y="trips"
-  title="Trips by Hour of Day"
-  xAxisTitle="Hour"
-  yAxisTitle="Trips"
-  colorPalette={["#3B82F6"]}
-  labels=true
-/>
+<Grid cols=2>
+  <BarChart
+    data={hourly_trips}
+    x="hour_of_day"
+    y="trips"
+    title="Trips by Hour"
+    xAxisTitle="Hour"
+    colorPalette={["#3B82F6"]}
+  />
+  <LineChart
+    data={hourly_trips}
+    x="hour_of_day"
+    y={["avg_fare", "avg_distance_miles"]}
+    y2="avg_distance_miles"
+    title="Avg Fare & Distance by Hour"
+    xAxisTitle="Hour"
+    yAxisTitle="Fare ($)"
+    y2AxisTitle="Miles"
+  />
+</Grid>
 
-<LineChart
-  data={hourly_trips}
-  x="hour_of_day"
-  y={["avg_fare", "avg_distance_miles"]}
-  title="Avg Fare & Distance by Hour"
-  xAxisTitle="Hour"
-  yAxisTitle="Value"
-  labels=false
-/>
+## Daily Revenue
 
----
+<DateRange name="date_range" title="Date Range" data={daily_revenue} dates="trip_date" />
 
-## Daily Revenue Trend
-
-<DateRange
-  name="date_range"
-  title="Date Range"
-/>
-
-<LineChart
-  data={revenue_filtered}
-  x="trip_date"
-  y="total_revenue"
-  title="Daily Revenue"
-  xAxisTitle="Date"
-  yAxisTitle="Revenue ($)"
-  colorPalette={["#10B981"]}
-  labels=false
-/>
-
-<BarChart
-  data={revenue_filtered}
-  x="trip_date"
-  y="trips"
-  title="Daily Trip Count"
-  xAxisTitle="Date"
-  yAxisTitle="Trips"
-  colorPalette={["#6366F1"]}
-  labels=false
-/>
-
----
+<Grid cols=2>
+  <LineChart
+    data={revenue_filtered}
+    x="trip_date"
+    y="total_revenue"
+    title="Daily Revenue"
+    yAxisTitle="Revenue ($)"
+    colorPalette={["#10B981"]}
+  />
+  <BarChart
+    data={revenue_filtered}
+    x="trip_date"
+    y="trips"
+    title="Daily Trip Count"
+    yAxisTitle="Trips"
+    colorPalette={["#6366F1"]}
+  />
+</Grid>
 
 ## Top Pickup Zones
 
-Adjust the minimum trip threshold to focus on the busiest zones:
+<Slider name="min_pickups" title="Minimum Pickups" min=100 max=5000 step=100 defaultValue=500 />
 
-<Slider
-  name="min_pickups"
-  title="Minimum Pickups"
-  min=100
-  max=5000
-  step=100
-  defaultValue=500
-/>
-
-<BarChart
-  data={top_zones_filtered}
-  x="zone_id"
-  y="pickups"
-  swapXY=true
-  title="Top Pickup Zones by Volume"
-  xAxisTitle="Pickups"
-  yAxisTitle="Zone ID"
-  colorPalette={["#F59E0B"]}
-  labels=true
-/>
-
-<DataTable
-  data={top_zones_filtered}
-  rows=20
->
-  <Column id="zone_id" title="Zone" />
-  <Column id="pickups" title="Pickups" fmt="num0" />
-  <Column id="avg_fare" title="Avg Fare" fmt="usd2" />
-  <Column id="tip_pct" title="Tip %" fmt="num1" suffix="%" />
-</DataTable>
-
----
+<Grid cols=2>
+  <BarChart
+    data={top_zones_filtered}
+    x="zone_id"
+    y="pickups"
+    swapXY=true
+    title="Pickups by Zone"
+    colorPalette={["#F59E0B"]}
+  />
+  <Group>
+    <DataTable data={top_zones_filtered} rows=20>
+      <Column id="zone_id" title="Zone" />
+      <Column id="pickups" title="Pickups" fmt="num0" />
+      <Column id="avg_fare" title="Avg Fare" fmt="usd2" />
+      <Column id="tip_pct" title="Tip %" fmt="num1" suffix="%" />
+    </DataTable>
+  </Group>
+</Grid>
 
 ## Tip Distribution
 
-<ECharts config={
-  {
-    tooltip: { trigger: 'item' },
-    legend: { orient: 'vertical', left: 'left' },
-    series: [{
-      name: 'Tip Distribution',
-      type: 'pie',
-      radius: ['40%', '70%'],
-      data: tip_buckets.map(r => ({ name: r.tip_bucket, value: r.trips })),
-      emphasis: {
-        itemStyle: {
-          shadowBlur: 10,
-          shadowOffsetX: 0,
-          shadowColor: 'rgba(0,0,0,0.5)'
-        }
-      }
-    }]
-  }
-}
-  height=350
-/>
-
-<DataTable data={tip_buckets}>
-  <Column id="tip_bucket" title="Tip Range" />
-  <Column id="trips" title="Trips" fmt="num0" />
-  <Column id="pct_of_total" title="% of Total" fmt="num1" suffix="%" />
-</DataTable>
+<Grid cols=2>
+  <ECharts config={
+    {
+      tooltip: { trigger: 'item', formatter: '{b}: {c} trips ({d}%)' },
+      series: [{
+        type: 'pie',
+        radius: ['40%', '75%'],
+        itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
+        label: { formatter: '{b}\n{d}%' },
+        data: tip_buckets.map(r => ({ name: r.tip_bucket, value: r.trips })),
+        color: ['#EF4444','#F59E0B','#10B981','#3B82F6','#8B5CF6','#EC4899']
+      }]
+    }
+  } height=320 />
+  <Group>
+    <DataTable data={tip_buckets}>
+      <Column id="tip_bucket" title="Tip Range" />
+      <Column id="trips" title="Trips" fmt="num0" />
+      <Column id="pct_of_total" title="% of Total" fmt="num1" suffix="%" />
+    </DataTable>
+  </Group>
+</Grid>
