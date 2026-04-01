@@ -18,12 +18,6 @@ SELECT * FROM results.tip_buckets
 SELECT * FROM results.daily_revenue ORDER BY trip_date
 ```
 
-```sql zone_options
-SELECT DISTINCT zone_id::TEXT AS label, zone_id AS value
-FROM results.top_zones
-ORDER BY zone_id
-```
-
 ```sql revenue_filtered
 SELECT *
 FROM results.daily_revenue
@@ -38,14 +32,6 @@ FROM results.top_zones
 WHERE pickups >= ${inputs.min_pickups}
 ORDER BY pickups DESC
 LIMIT 20
-```
-
-```sql hourly_filtered
-SELECT *
-FROM results.hourly_trips
-WHERE hour_of_day >= ${inputs.hour_range.start}
-  AND hour_of_day <= ${inputs.hour_range.end}
-ORDER BY hour_of_day
 ```
 
 # NYC Yellow Taxi — Trip Analysis
@@ -82,19 +68,8 @@ ORDER BY hour_of_day
 
 ## Hourly Trip Patterns
 
-Filter by hour window to focus on specific parts of the day:
-
-<RangeInput
-  name="hour_range"
-  title="Hour of Day"
-  min=0
-  max=23
-  step=1
-  defaultValue={{start: 0, end: 23}}
-/>
-
 <BarChart
-  data={hourly_filtered}
+  data={hourly_trips}
   x="hour_of_day"
   y="trips"
   title="Trips by Hour of Day"
@@ -105,7 +80,7 @@ Filter by hour window to focus on specific parts of the day:
 />
 
 <LineChart
-  data={hourly_filtered}
+  data={hourly_trips}
   x="hour_of_day"
   y={["avg_fare", "avg_distance_miles"]}
   title="Avg Fare & Distance by Hour"
@@ -118,7 +93,7 @@ Filter by hour window to focus on specific parts of the day:
 
 ## Daily Revenue Trend
 
-<DateRangeInput
+<DateRange
   name="date_range"
   title="Date Range"
 />
