@@ -1,7 +1,18 @@
 ---
 title: NYC Yellow Taxi — Trip Analysis
-hide_title: true
 ---
+
+<style>
+  /* Hide Evidence chrome: sidebar, header, breadcrumbs, TOC */
+  aside, header, nav, .sidebar, .breadcrumbs, .toc,
+  [class*="sidebar"], [class*="Sidebar"],
+  [class*="header"], [class*="Header"],
+  [class*="breadcrumb"], [class*="Breadcrumb"] { display: none !important; }
+  /* Expand main content to full width */
+  main, article, .content, [class*="content"] { max-width: 100% !important; margin: 0 auto !important; }
+  /* Hide show-queries toggle */
+  [class*="query-viewer"], [class*="QueryViewer"], [class*="show-queries"] { display: none !important; }
+</style>
 
 ```sql hourly_trips
 SELECT hour_of_day::INT AS hour_of_day,
@@ -20,7 +31,7 @@ FROM results.top_zones ORDER BY pickups DESC
 ```
 
 ```sql tip_buckets
-SELECT tip_bucket,
+SELECT REPLACE(tip_bucket, '"', '') AS tip_bucket,
        trips::BIGINT AS trips,
        pct_of_total::DOUBLE AS pct_of_total
 FROM results.tip_buckets
@@ -42,7 +53,7 @@ FROM results.daily_revenue
 ```
 
 ```sql tip_summary
-SELECT ROUND(SUM(CASE WHEN tip_bucket != 'No tip' THEN pct_of_total::DOUBLE ELSE 0 END), 1) AS tipped_pct
+SELECT ROUND(SUM(CASE WHEN REPLACE(tip_bucket, '"', '') != 'No tip' THEN pct_of_total::DOUBLE ELSE 0 END), 1) AS tipped_pct
 FROM results.tip_buckets
 ```
 
@@ -67,9 +78,6 @@ WHERE pickups::BIGINT >= ${inputs.min_pickups}
 ORDER BY pickups::BIGINT DESC
 LIMIT 20
 ```
-
-<h1 style="margin-bottom:0.25rem;">NYC Yellow Taxi</h1>
-<p style="color:#64748b; margin-top:0;">2022 trip analysis — fare trends, zone popularity, tip behaviour</p>
 
 <BigValue data={summary} value="total_trips" title="Total Trips" fmt="num0" />
 <BigValue data={summary} value="total_revenue" title="Total Revenue" fmt="usd0" />
