@@ -142,19 +142,15 @@ ORDER BY pickups::BIGINT DESC
 ## Tip Distribution
 
 <Grid cols=2>
-  <ECharts config={
-    {
-      tooltip: { trigger: 'item', formatter: '{b}: {c} trips ({d}%)' },
-      series: [{
-        type: 'pie',
-        radius: ['40%', '75%'],
-        itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
-        label: { formatter: '{b}\n{d}%' },
-        data: tip_buckets.map(r => ({ name: r.tip_bucket, value: r.trips })),
-        color: ['#EF4444','#F59E0B','#10B981','#3B82F6','#8B5CF6','#EC4899']
-      }]
-    }
-  } height=320 />
+  <BarChart
+    data={tip_buckets}
+    x="tip_bucket"
+    y="trips"
+    title="Trips by Tip Range"
+    xAxisTitle="Tip Range"
+    yAxisTitle="Trips"
+    colorPalette={["#3B82F6"]}
+  />
   <DataTable data={tip_buckets}>
     <Column id="tip_bucket" title="Tip Range" />
     <Column id="trips" title="Trips" fmt="num0" />
