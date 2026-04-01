@@ -20,7 +20,7 @@ job.update_progress("running_analysis", progress_pct=5,
                     progress_message="Connecting to query engine…")
 conn = job.connect()   # ADBC → grpc://bedrock-query-engine:7778
 
-year = int(os.environ.get("PARAM_YEAR", 2023))
+year = int(os.environ.get("PARAM_YEAR", 2022))
 min_trips = int(os.environ.get("PARAM_MIN_TRIPS", 500))
 
 job.update_progress("running_analysis", progress_pct=10,
@@ -33,7 +33,7 @@ hourly = conn.execute(f"""
         COUNT(*)                                      AS trips,
         ROUND(AVG(total_amount), 2)                   AS avg_fare,
         ROUND(AVG(trip_distance), 2)                  AS avg_distance_miles
-    FROM catalog.nyc.yellow_taxi
+    FROM catalog.transportation.nyc_taxi_trips
     WHERE EXTRACT(year FROM tpep_pickup_datetime) = {year}
     GROUP BY hour_of_day
     ORDER BY hour_of_day
@@ -45,13 +45,13 @@ job.update_progress("running_analysis", progress_pct=30,
 # ── 3. Top pickup zones ───────────────────────────────────────────────────────
 zones = conn.execute(f"""
     SELECT
-        PULocationID                          AS zone_id,
+        pu_location_id                        AS zone_id,
         COUNT(*)                              AS pickups,
         ROUND(AVG(total_amount), 2)           AS avg_fare,
         ROUND(AVG(tip_amount / NULLIF(total_amount,0)) * 100, 1) AS tip_pct
-    FROM catalog.nyc.yellow_taxi
+    FROM catalog.transportation.nyc_taxi_trips
     WHERE EXTRACT(year FROM tpep_pickup_datetime) = {year}
-    GROUP BY PULocationID
+    GROUP BY pu_location_id
     HAVING COUNT(*) >= {min_trips}
     ORDER BY pickups DESC
     LIMIT 50
@@ -73,7 +73,7 @@ tips = conn.execute(f"""
         END                                                  AS tip_bucket,
         COUNT(*)                                             AS trips,
         ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 1)  AS pct_of_total
-    FROM catalog.nyc.yellow_taxi
+    FROM catalog.transportation.nyc_taxi_trips
     WHERE EXTRACT(year FROM tpep_pickup_datetime) = {year}
       AND total_amount > 0
     GROUP BY tip_bucket
@@ -90,7 +90,7 @@ revenue = conn.execute(f"""
         COUNT(*)                              AS trips,
         ROUND(SUM(total_amount), 0)           AS total_revenue,
         ROUND(AVG(total_amount), 2)           AS avg_fare
-    FROM catalog.nyc.yellow_taxi
+    FROM catalog.transportation.nyc_taxi_trips
     WHERE EXTRACT(year FROM tpep_pickup_datetime) = {year}
     GROUP BY trip_date
     ORDER BY trip_date
@@ -136,7 +136,7 @@ write_parquet("daily_revenue",  revenue, ["trip_date", "trips", "total_revenue",
 job.update_progress("running_analysis", progress_pct=95,
                     progress_message="Finalising report…",
                     lineage={
-                        "inputs":  ["bedrock.nyc.yellow_taxi"],
+                        "inputs":  ["bedrock.transportation.nyc_taxi_trips"],
                         "outputs": [f"{out}/hourly_trips.parquet",
                                     f"{out}/top_zones.parquet",
                                     f"{out}/tip_buckets.parquet",
