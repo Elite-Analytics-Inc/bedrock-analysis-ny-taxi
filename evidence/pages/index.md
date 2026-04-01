@@ -4,26 +4,40 @@ hide_title: true
 ---
 
 ```sql hourly_trips
-SELECT * FROM results.hourly_trips ORDER BY hour_of_day
+SELECT hour_of_day::INT AS hour_of_day,
+       trips::BIGINT AS trips,
+       avg_fare::DOUBLE AS avg_fare,
+       avg_distance_miles::DOUBLE AS avg_distance_miles
+FROM results.hourly_trips ORDER BY hour_of_day
 ```
 
 ```sql top_zones
-SELECT * FROM results.top_zones ORDER BY pickups DESC
+SELECT zone_id::INT AS zone_id,
+       pickups::BIGINT AS pickups,
+       avg_fare::DOUBLE AS avg_fare,
+       tip_pct::DOUBLE AS tip_pct
+FROM results.top_zones ORDER BY pickups DESC
 ```
 
 ```sql tip_buckets
-SELECT * FROM results.tip_buckets
+SELECT tip_bucket,
+       trips::BIGINT AS trips,
+       pct_of_total::DOUBLE AS pct_of_total
+FROM results.tip_buckets
 ```
 
 ```sql daily_revenue
-SELECT * FROM results.daily_revenue ORDER BY trip_date
+SELECT trip_date::DATE AS trip_date,
+       trips::BIGINT AS trips,
+       total_revenue::DOUBLE AS total_revenue,
+       avg_fare::DOUBLE AS avg_fare
+FROM results.daily_revenue ORDER BY trip_date
 ```
 
 ```sql summary
-SELECT
-  SUM(trips::BIGINT)                          AS total_trips,
-  ROUND(SUM(total_revenue::DOUBLE), 0)::BIGINT AS total_revenue,
-  ROUND(AVG(avg_fare::DOUBLE), 2)              AS avg_fare
+SELECT SUM(trips::BIGINT)                          AS total_trips,
+       ROUND(SUM(total_revenue::DOUBLE), 0)::BIGINT AS total_revenue,
+       ROUND(AVG(avg_fare::DOUBLE), 2)              AS avg_fare
 FROM results.daily_revenue
 ```
 
@@ -33,18 +47,24 @@ FROM results.tip_buckets
 ```
 
 ```sql revenue_filtered
-SELECT *
+SELECT trip_date::DATE AS trip_date,
+       trips::BIGINT AS trips,
+       total_revenue::DOUBLE AS total_revenue,
+       avg_fare::DOUBLE AS avg_fare
 FROM results.daily_revenue
-WHERE trip_date >= '${inputs.date_range.start}'
-  AND trip_date <= '${inputs.date_range.end}'
+WHERE trip_date::DATE >= '${inputs.date_range.start}'::DATE
+  AND trip_date::DATE <= '${inputs.date_range.end}'::DATE
 ORDER BY trip_date
 ```
 
 ```sql top_zones_filtered
-SELECT *
+SELECT zone_id::INT AS zone_id,
+       pickups::BIGINT AS pickups,
+       avg_fare::DOUBLE AS avg_fare,
+       tip_pct::DOUBLE AS tip_pct
 FROM results.top_zones
-WHERE pickups::INT >= ${inputs.min_pickups}
-ORDER BY pickups::INT DESC
+WHERE pickups::BIGINT >= ${inputs.min_pickups}
+ORDER BY pickups::BIGINT DESC
 LIMIT 20
 ```
 
@@ -83,7 +103,7 @@ LIMIT 20
 
 ## Daily Revenue
 
-<DateRange name="date_range" title="Date Range" />
+<DateRange name="date_range" data={daily_revenue} dates="trip_date" />
 
 <Grid cols=2>
   <LineChart
@@ -136,7 +156,7 @@ LIMIT 20
         radius: ['40%', '75%'],
         itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
         label: { formatter: '{b}\n{d}%' },
-        data: tip_buckets.map(r => ({ name: r.tip_bucket, value: Number(r.trips) })),
+        data: tip_buckets.map(r => ({ name: r.tip_bucket, value: r.trips })),
         color: ['#EF4444','#F59E0B','#10B981','#3B82F6','#8B5CF6','#EC4899']
       }]
     }
