@@ -83,7 +83,7 @@ LIMIT 20
 
 ## Daily Revenue
 
-<DateRange name="date_range" title="Date Range" data={daily_revenue} dates="trip_date" />
+<DateRange name="date_range" title="Date Range" />
 
 <Grid cols=2>
   <LineChart
