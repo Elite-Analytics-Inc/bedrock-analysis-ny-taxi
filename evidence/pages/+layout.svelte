@@ -4,11 +4,11 @@
 </script>
 
 <EvidenceDefaultLayout {data}
+  title="Bedrock Analytics"
   hideSidebar={true}
-  hideHeader={true}
   hideBreadcrumbs={true}
   hideTOC={true}
-  fullWidth={false}
+  fullWidth={true}
   builtWithEvidence={false}
   neverShowQueries={true}
 >
