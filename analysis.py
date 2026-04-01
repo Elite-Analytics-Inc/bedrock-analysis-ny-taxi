@@ -122,7 +122,7 @@ def write_parquet(name, rows, columns):
             return o.isoformat()
         raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
     col_defs = ", ".join(f"v[{i}] AS {c}" for i, c in enumerate(columns))
-    vals = json.dumps(rows, default=_default)
+    vals = json.dumps(rows, default=_default, ensure_ascii=False)
     write_conn.execute(f"""
         COPY (
             SELECT {col_defs}
