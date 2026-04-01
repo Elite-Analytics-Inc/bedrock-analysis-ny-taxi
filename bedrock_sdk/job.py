@@ -21,6 +21,9 @@ class BedrockJob:
         self.token = os.environ["BEDROCK_TOKEN"]
         self.job_id = os.environ["BEDROCK_JOB_ID"]
         self.catalog_url = os.environ["BEDROCK_CATALOG_URL"]
+        # Polaris OAuth2 credential in "client_id:client_secret" format.
+        # Injected by the runner; used by connect() to ATTACH the Iceberg catalog.
+        self._catalog_credential = os.environ.get("BEDROCK_CATALOG_CREDENTIAL", "")
 
     @property
     def output_path(self) -> str:
@@ -58,11 +61,12 @@ class BedrockJob:
                 )
             """)
 
+        client_id, _, client_secret = self._catalog_credential.partition(":")
         conn.execute(f"""
             ATTACH '{self.catalog_url}' AS catalog (
                 TYPE ICEBERG,
-                CLIENT_ID 'bedrock',
-                CLIENT_SECRET '{self.token}'
+                CLIENT_ID '{client_id}',
+                CLIENT_SECRET '{client_secret}'
             )
         """)
         return conn
