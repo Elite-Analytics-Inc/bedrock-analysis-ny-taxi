@@ -3,10 +3,6 @@ name: Build & Push Docker Image
 on:
   push:
     branches: [main]
-    paths:
-      - "Dockerfile"
-      - "analysis.py"
-      - "bedrock_sdk/**"
   workflow_dispatch:
 
 env:
