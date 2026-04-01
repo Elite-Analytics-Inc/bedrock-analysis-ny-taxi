@@ -64,7 +64,7 @@ SELECT zone_id::VARCHAR AS zone_id,
 FROM results.top_zones
 WHERE pickups::BIGINT >= ${inputs.min_pickups}
 ORDER BY pickups::BIGINT DESC
-LIMIT 20
+
 ```
 
 <BigValue data={summary} value="total_trips" title="Total Trips" fmt="num0" />
@@ -120,7 +120,7 @@ LIMIT 20
 
 ## Top Pickup Zones
 
-<Slider name="min_pickups" title="Minimum Pickups" min=100 max=5000 step=100 defaultValue=500 />
+<Slider name="min_pickups" title="Minimum Pickups" min=10000 max=2000000 step=10000 defaultValue=500000 />
 
 <Grid cols=2>
   <BarChart
