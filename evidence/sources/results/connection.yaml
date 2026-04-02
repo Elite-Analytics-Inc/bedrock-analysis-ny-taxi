@@ -1,0 +1,4 @@
+name: results
+type: duckdb
+options:
+  filename: ":memory:"
