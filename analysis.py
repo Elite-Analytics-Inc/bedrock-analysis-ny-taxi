@@ -1,151 +1,127 @@
 """
 NYC Yellow Taxi Analysis — Bedrock Job Definition
 ==================================================
-Queries the NY taxi Iceberg dataset through the Bedrock query engine (gRPC/ADBC),
-materialises summary Parquet files for the Evidence dashboard, and emits
-structured progress events visible in the Bedrock UI.
+Queries the NY taxi Iceberg dataset through the Bedrock query engine
+(ABAC enforced), materialises summary Parquet files for the Evidence
+dashboard, and emits structured progress events visible in the Bedrock UI.
 """
 
 import os
 import sys
 
-# Bedrock SDK — injected into the container via the base image
 sys.path.insert(0, "/")
 from bedrock_sdk import BedrockJob
 
 job = BedrockJob()
-
-# ── 1. Connect via Arrow Flight (ABAC enforced by the query engine) ───────────
-job.update_progress("running_analysis", progress_pct=5,
-                    progress_message="Connecting to query engine…")
-conn = job.connect()   # ADBC → grpc://bedrock-query-engine:7778
+conn = job.connect()
 
 year = int(os.environ.get("PARAM_YEAR", 2022))
 min_trips = int(os.environ.get("PARAM_MIN_TRIPS", 500))
+
+# ── 1. Fetch data from Iceberg (ABAC enforced via query engine) ──────────────
+job.update_progress("running_analysis", progress_pct=5,
+                    progress_message="Connecting to query engine…")
+
+job.fetch("taxi_trips", f"""
+    SELECT tpep_pickup_datetime, tpep_dropoff_datetime,
+           pu_location_id, do_location_id,
+           trip_distance, total_amount, tip_amount
+    FROM catalog.transportation.nyc_taxi_trips
+    WHERE EXTRACT(year FROM tpep_pickup_datetime) = {year}
+""")
 
 job.update_progress("running_analysis", progress_pct=10,
                     progress_message=f"Analysing {year} taxi data…")
 
 # ── 2. Hourly trip volume ─────────────────────────────────────────────────────
-hourly = conn.execute(f"""
+job.progress(30, "Computing hourly trends…")
+
+# ── 3. Top pickup zones ──────────────────────────────────────────────────────
+job.progress(55, "Computing zone statistics…")
+
+# ── 4. Tip distribution ──────────────────────────────────────────────────────
+job.progress(75, "Computing tip distribution…")
+
+# ── 5. Daily revenue trend ───────────────────────────────────────────────────
+job.progress(85, "Computing daily revenue trend…")
+
+# ── 6. Write Parquet files via presigned URLs (no R2 creds needed) ────────────
+job.progress(90, "Writing result files…")
+
+job.write_parquet("hourly_trips", """
     SELECT
         EXTRACT(hour FROM tpep_pickup_datetime)::INT AS hour_of_day,
         COUNT(*)                                      AS trips,
         ROUND(AVG(total_amount), 2)                   AS avg_fare,
         ROUND(AVG(trip_distance), 2)                  AS avg_distance_miles
-    FROM catalog.transportation.nyc_taxi_trips
-    WHERE EXTRACT(year FROM tpep_pickup_datetime) = {year}
+    FROM taxi_trips
     GROUP BY hour_of_day
     ORDER BY hour_of_day
-""").fetchall()
+""")
 
-job.update_progress("running_analysis", progress_pct=30,
-                    progress_message="Computing zone statistics…")
-
-# ── 3. Top pickup zones ───────────────────────────────────────────────────────
-zones = conn.execute(f"""
+job.write_parquet("top_zones", f"""
     SELECT
         pu_location_id                        AS zone_id,
         COUNT(*)                              AS pickups,
         ROUND(AVG(total_amount), 2)           AS avg_fare,
         ROUND(AVG(tip_amount / NULLIF(total_amount,0)) * 100, 1) AS tip_pct
-    FROM catalog.transportation.nyc_taxi_trips
-    WHERE EXTRACT(year FROM tpep_pickup_datetime) = {year}
+    FROM taxi_trips
     GROUP BY pu_location_id
     HAVING COUNT(*) >= {min_trips}
     ORDER BY pickups DESC
     LIMIT 50
-""").fetchall()
+""")
 
-job.update_progress("running_analysis", progress_pct=55,
-                    progress_message="Computing tip distribution…")
-
-# ── 4. Tip percentage distribution ───────────────────────────────────────────
-tips = conn.execute(f"""
+job.write_parquet("tip_buckets", """
     SELECT
         CASE
             WHEN tip_amount = 0                              THEN 'No tip'
             WHEN tip_amount / total_amount < 0.10            THEN '< 10%'
-            WHEN tip_amount / total_amount < 0.15            THEN '10–15%'
-            WHEN tip_amount / total_amount < 0.20            THEN '15–20%'
-            WHEN tip_amount / total_amount < 0.25            THEN '20–25%'
+            WHEN tip_amount / total_amount < 0.15            THEN '10-15%'
+            WHEN tip_amount / total_amount < 0.20            THEN '15-20%'
+            WHEN tip_amount / total_amount < 0.25            THEN '20-25%'
             ELSE                                                  '25%+'
         END                                                  AS tip_bucket,
         COUNT(*)                                             AS trips,
         ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 1)  AS pct_of_total
-    FROM catalog.transportation.nyc_taxi_trips
-    WHERE EXTRACT(year FROM tpep_pickup_datetime) = {year}
-      AND total_amount > 0
+    FROM taxi_trips
+    WHERE total_amount > 0
     GROUP BY tip_bucket
-    ORDER BY MIN(tip_amount / total_amount)
-""").fetchall()
+    ORDER BY MIN(tip_amount / NULLIF(total_amount,1))
+""")
 
-job.update_progress("running_analysis", progress_pct=75,
-                    progress_message="Computing daily revenue trend…")
-
-# ── 5. Daily revenue trend ────────────────────────────────────────────────────
-revenue = conn.execute(f"""
+job.write_parquet("daily_revenue", """
     SELECT
         tpep_pickup_datetime::DATE            AS trip_date,
         COUNT(*)                              AS trips,
         ROUND(SUM(total_amount), 0)           AS total_revenue,
         ROUND(AVG(total_amount), 2)           AS avg_fare
-    FROM catalog.transportation.nyc_taxi_trips
-    WHERE EXTRACT(year FROM tpep_pickup_datetime) = {year}
+    FROM taxi_trips
     GROUP BY trip_date
     ORDER BY trip_date
-""").fetchall()
-
-job.update_progress("running_analysis", progress_pct=85,
-                    progress_message="Writing result files…")
-
-# ── 6. Write Parquet files for Evidence dashboard ─────────────────────────────
-import duckdb
-write_conn = duckdb.connect(":memory:")
-write_conn.execute("INSTALL httpfs; LOAD httpfs;")
-write_conn.execute(f"""
-    CREATE SECRET r2 (
-        TYPE S3,
-        KEY_ID '{os.environ["BEDROCK_R2_ACCESS_KEY"]}',
-        SECRET '{os.environ["BEDROCK_R2_SECRET_KEY"]}',
-        ENDPOINT '{os.environ["BEDROCK_R2_ACCOUNT_ID"]}.r2.cloudflarestorage.com',
-        REGION 'auto', URL_STYLE 'path'
-    )
 """)
 
-out = job.output_path  # e.g. s3://bedrock-lake/analytics/bedrock/<job_id>/data
-
-def write_parquet(name, rows, columns):
-    import json, datetime
-    def _default(o):
-        if isinstance(o, (datetime.date, datetime.datetime)):
-            return o.isoformat()
-        raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
-    col_defs = ", ".join(f"v[{i}] AS {c}" for i, c in enumerate(columns))
-    vals = json.dumps(rows, default=_default, ensure_ascii=False)
-    write_conn.execute(f"""
-        COPY (
-            SELECT {col_defs}
-            FROM (SELECT unnest({vals!r}::JSON[]) AS v)
-        ) TO '{out}/{name}.parquet' (FORMAT PARQUET)
-    """)
-    print(f"  wrote {name}.parquet ({len(rows)} rows)", flush=True)
-
-write_parquet("hourly_trips",   hourly,  ["hour_of_day", "trips", "avg_fare", "avg_distance_miles"])
-write_parquet("top_zones",      zones,   ["zone_id", "pickups", "avg_fare", "tip_pct"])
-write_parquet("tip_buckets",    tips,    ["tip_bucket", "trips", "pct_of_total"])
-write_parquet("daily_revenue",  revenue, ["trip_date", "trips", "total_revenue", "avg_fare"])
-
-# ── 7. Emit structured report card (visible in Bedrock UI) ────────────────────
+# ── 7. Emit structured report ────────────────────────────────────────────────
+out_prefix = f"analytics/bedrock/{job.job_id}/data"
 job.update_progress("running_analysis", progress_pct=95,
                     progress_message="Finalising report…",
                     lineage={
                         "inputs":  ["bedrock.transportation.nyc_taxi_trips"],
-                        "outputs": [f"{out}/hourly_trips.parquet",
-                                    f"{out}/top_zones.parquet",
-                                    f"{out}/tip_buckets.parquet",
-                                    f"{out}/daily_revenue.parquet"]
+                        "outputs": [f"{out_prefix}/hourly_trips.parquet",
+                                    f"{out_prefix}/top_zones.parquet",
+                                    f"{out_prefix}/tip_buckets.parquet",
+                                    f"{out_prefix}/daily_revenue.parquet"]
                     })
+
+hourly = conn.execute("""
+    SELECT hour_of_day, trips, avg_fare, avg_distance_miles
+    FROM read_parquet('/tmp/hourly_trips.parquet')
+""").fetchall()
+
+tips = conn.execute("""
+    SELECT tip_bucket, trips, pct_of_total
+    FROM read_parquet('/tmp/tip_buckets.parquet')
+""").fetchall()
 
 job.table(
     id="hourly_summary",
@@ -162,4 +138,3 @@ job.table(
 )
 
 job.complete()
-
