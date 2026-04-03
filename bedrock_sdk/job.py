@@ -168,8 +168,8 @@ class BedrockJob:
         line = json.dumps(obj)
         print(line, flush=True)
         self._log_buffer.append(line)
-        # Flush to R2 every 10 lines to keep the SSE stream responsive.
-        if len(self._log_buffer) - self._last_flush >= 10:
+        # Flush to R2: immediately on first emit, then every 5 lines.
+        if self._last_flush == 0 or len(self._log_buffer) - self._last_flush >= 5:
             self._flush_logs()
 
     def _flush_logs(self):
