@@ -76,17 +76,17 @@ class BedrockJob:
         rows = data.get("rows", [])
 
         if not rows:
-            # Create empty table with correct columns
             col_defs = ", ".join(f'"{c}" VARCHAR' for c in columns)
             conn.execute(f'CREATE OR REPLACE TABLE "{table_name}" ({col_defs})')
             return
 
-        # Build table from JSON rows
-        json_str = json.dumps(rows)
-        conn.execute(f"""
-            CREATE OR REPLACE TABLE "{table_name}" AS
-            SELECT * FROM read_json_auto('{json_str}'::JSON)
-        """)
+        # Write JSON to temp file to avoid SQL injection from special chars.
+        import tempfile
+        tmp = os.path.join(tempfile.gettempdir(), f"_fetch_{table_name}.json")
+        with open(tmp, "w") as f:
+            json.dump(rows, f)
+        conn.execute(f'CREATE OR REPLACE TABLE "{table_name}" AS SELECT * FROM read_json_auto(\'{tmp}\')')
+        os.remove(tmp)
 
     def write_parquet(self, name: str, sql: str):
         """
