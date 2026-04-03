@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import tempfile
 
 
 class BedrockJob:
@@ -8,89 +9,154 @@ class BedrockJob:
     Runtime helper for Bedrock analysis jobs running inside a K8s container.
 
     Environment variables (injected by the query engine at job creation):
-        BEDROCK_TOKEN           — short-lived Polaris token scoped to the submitting user
-        BEDROCK_JOB_ID          — UUID of this job run
-        BEDROCK_CATALOG_URL     — Polaris REST catalog base URL
-        BEDROCK_OUTPUT_PATH     — s3:// prefix for writing Parquet output files
-        BEDROCK_R2_ACCESS_KEY   — R2 access key (for DuckDB COPY TO)
-        BEDROCK_R2_SECRET_KEY   — R2 secret key
-        BEDROCK_R2_ACCOUNT_ID   — R2 account ID
+        BEDROCK_JOB_TOKEN           — job-scoped JWT (user_id + roles + job_id)
+        BEDROCK_JOB_ID              — UUID of this job run
+        BEDROCK_QUERY_ENGINE_URL    — query engine HTTP URL (e.g. http://bedrock-query-engine:7777)
+
+    Security model:
+        - Reads: routed through the query engine's HTTP /query endpoint (ABAC enforced)
+        - Writes: presigned PUT URLs from the query engine (path-scoped, time-limited)
+        - No R2 credentials or Polaris credentials are exposed to the container
     """
 
     def __init__(self):
-        self.token = os.environ["BEDROCK_TOKEN"]
+        self.job_token = os.environ["BEDROCK_JOB_TOKEN"]
         self.job_id = os.environ["BEDROCK_JOB_ID"]
-        self.catalog_url = os.environ["BEDROCK_CATALOG_URL"]
-        # Polaris OAuth2 credential in "client_id:client_secret" format.
-        # Injected by the runner; used by connect() to ATTACH the Iceberg catalog.
-        self._catalog_credential = os.environ.get("BEDROCK_CATALOG_CREDENTIAL", "")
+        self.qe_url = os.environ.get("BEDROCK_QUERY_ENGINE_URL", "http://bedrock-query-engine:7777")
+        self._conn = None  # lazy local DuckDB connection
 
-    @property
-    def output_path(self) -> str:
-        """S3 prefix for writing Parquet output files, e.g. s3://bedrock-lake/analytics/demo/{job_id}/data"""
-        return os.environ["BEDROCK_OUTPUT_PATH"]
+    def _local_conn(self):
+        """Get or create a local DuckDB in-memory connection for processing."""
+        if self._conn is None:
+            import duckdb
+            self._conn = duckdb.connect(":memory:")
+        return self._conn
 
-    def _fetch_polaris_token(self) -> str:
-        """Exchange BEDROCK_CATALOG_CREDENTIAL for a short-lived Polaris bearer token."""
-        import urllib.request, urllib.parse
-        base = self.catalog_url.rstrip("/").removesuffix("/api/catalog")
-        token_url = f"{base}/api/catalog/v1/oauth/tokens"
-        client_id, _, client_secret = self._catalog_credential.partition(":")
-        body = urllib.parse.urlencode({
-            "grant_type": "client_credentials",
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "scope": "PRINCIPAL_ROLE:ALL",
-        }).encode()
-        req = urllib.request.Request(token_url, data=body, method="POST")
-        req.add_header("Content-Type", "application/x-www-form-urlencoded")
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            import json
-            return json.load(resp)["access_token"]
+    def _http_headers(self):
+        return {
+            "Authorization": f"Bearer {self.job_token}",
+            "Content-Type": "application/json",
+        }
 
     def connect(self):
         """
-        Return a DuckDB in-memory connection with the Iceberg catalog attached.
+        Return a local DuckDB in-memory connection.
 
-        The connection is configured with:
-          - iceberg + httpfs extensions loaded
-          - R2 credentials set via BEDROCK_R2_* env vars (optional; Fluent Bit
-            sidecar uses its own credentials)
-          - Polaris catalog ATTACHed as 'catalog' using BEDROCK_TOKEN
+        Use fetch() to load data from Iceberg tables (ABAC enforced via the query engine).
+        The returned connection is for local processing only — it has no direct access
+        to Iceberg or R2.
         """
-        import duckdb
+        return self._local_conn()
 
-        conn = duckdb.connect(":memory:")
-        conn.execute("INSTALL iceberg; LOAD iceberg;")
-        conn.execute("INSTALL httpfs; LOAD httpfs;")
+    def fetch(self, table_name: str, sql: str):
+        """
+        Query Iceberg data through the query engine (ABAC enforced).
 
-        # R2 storage secret — used both for reading raw files and COPY TO output.
-        r2_key = os.environ.get("BEDROCK_R2_ACCESS_KEY")
-        r2_secret = os.environ.get("BEDROCK_R2_SECRET_KEY")
-        r2_account = os.environ.get("BEDROCK_R2_ACCOUNT_ID")
-        if r2_key and r2_secret and r2_account:
-            conn.execute(f"""
-                CREATE SECRET bedrock_r2 (
-                    TYPE S3,
-                    KEY_ID '{r2_key}',
-                    SECRET '{r2_secret}',
-                    ENDPOINT '{r2_account}.r2.cloudflarestorage.com',
-                    URL_STYLE 'path'
-                )
-            """)
+        Executes `sql` on the query engine's HTTP /query endpoint, then registers
+        the result as a local DuckDB table named `table_name`.
 
-        # Fetch a short-lived bearer token from Polaris, then ATTACH using
-        # ENDPOINT + TOKEN (the pattern DuckDB 1.5 requires for Iceberg REST).
-        token = self._fetch_polaris_token()
-        warehouse = os.environ.get("BEDROCK_CATALOG_WAREHOUSE", "bedrock")
+        Example:
+            job.fetch("trips", "SELECT * FROM catalog.transportation.nyc_taxi_trips WHERE year = 2022")
+            result = conn.execute("SELECT COUNT(*) FROM trips").fetchone()
+        """
+        import urllib.request
+
+        payload = json.dumps({"sql": sql}).encode()
+        req = urllib.request.Request(
+            f"{self.qe_url}/query",
+            data=payload,
+            method="POST",
+            headers=self._http_headers(),
+        )
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            data = json.load(resp)
+
+        conn = self._local_conn()
+        columns = data.get("columns", [])
+        rows = data.get("rows", [])
+
+        if not rows:
+            # Create empty table with correct columns
+            col_defs = ", ".join(f'"{c}" VARCHAR' for c in columns)
+            conn.execute(f'CREATE OR REPLACE TABLE "{table_name}" ({col_defs})')
+            return
+
+        # Build table from JSON rows
+        json_str = json.dumps(rows)
         conn.execute(f"""
-            ATTACH '{warehouse}' AS catalog (
-                TYPE ICEBERG,
-                ENDPOINT '{self.catalog_url}',
-                TOKEN '{token}'
-            )
+            CREATE OR REPLACE TABLE "{table_name}" AS
+            SELECT * FROM read_json_auto('{json_str}'::JSON)
         """)
-        return conn
+
+    def write_parquet(self, name: str, sql: str):
+        """
+        Write SQL query results to a parquet file in the job's output location.
+
+        Executes `sql` against the local DuckDB connection, writes to a temp file,
+        then uploads via a presigned PUT URL from the query engine.
+
+        Example:
+            job.write_parquet("states", "SELECT state, avg_aqi FROM state_summary")
+        """
+        conn = self._local_conn()
+        local_path = os.path.join(tempfile.gettempdir(), f"{name}.parquet")
+
+        # Write parquet locally
+        conn.execute(f"COPY ({sql}) TO '{local_path}' (FORMAT PARQUET)")
+
+        # Get presigned PUT URL from query engine
+        presigned_url = self._presign_upload(f"{name}.parquet")
+
+        # Upload via HTTP PUT
+        self._upload_file(local_path, presigned_url)
+
+        # Report and clean up
+        row_count = conn.execute(f"SELECT COUNT(*) FROM ({sql})").fetchone()[0]
+        print(f"  wrote {name}.parquet ({row_count} rows)", flush=True)
+        os.remove(local_path)
+
+    def write_parquet_rows(self, name: str, rows: list, columns: list):
+        """
+        Write raw row data to a parquet file (fallback for data not in DuckDB).
+
+        Prefer write_parquet(name, sql) when data is already in local DuckDB tables.
+        """
+        conn = self._local_conn()
+        col_defs = ", ".join(f'v[{i}] AS "{c}"' for i, c in enumerate(columns))
+        json_str = json.dumps(rows, default=str, ensure_ascii=False)
+        conn.execute(f"""
+            CREATE OR REPLACE TEMP TABLE _write_tmp AS
+            SELECT {col_defs} FROM (SELECT unnest('{json_str}'::JSON[] ) AS v)
+        """)
+        self.write_parquet(name, "SELECT * FROM _write_tmp")
+        conn.execute("DROP TABLE IF EXISTS _write_tmp")
+
+    def _presign_upload(self, filename: str) -> str:
+        """Request a presigned PUT URL from the query engine."""
+        import urllib.request
+
+        url = f"{self.qe_url}/analysis/{self.job_id}/presign/{filename}"
+        req = urllib.request.Request(url, method="GET", headers=self._http_headers())
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.load(resp)
+        return data["url"]
+
+    def _upload_file(self, local_path: str, presigned_url: str):
+        """Upload a file to R2 via a presigned PUT URL."""
+        import urllib.request
+
+        with open(local_path, "rb") as f:
+            file_data = f.read()
+
+        req = urllib.request.Request(
+            presigned_url,
+            data=file_data,
+            method="PUT",
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            if resp.status not in (200, 201):
+                raise RuntimeError(f"Upload failed: HTTP {resp.status}")
 
     # ── Output methods — all emit structured JSONL to stdout ────────────────
 
@@ -104,9 +170,6 @@ class BedrockJob:
         status:  flow-diagram step name, e.g. 'running_analysis', 'analysis_complete'
         kwargs:  optional extra fields merged into payload, e.g.
                      progress_pct=50, progress_message="Computing…", lineage={…}
-
-        The runner intercepts lines with type='payload' and merges them into
-        the analysis_runs.payload JSONB column in Postgres.
         """
         data = {"status": status, **kwargs}
         self._emit({"type": "payload", "data": data})
@@ -120,14 +183,7 @@ class BedrockJob:
         self._emit({"type": "table", "id": id, "title": title, "headers": headers, "rows": rows})
 
     def diagram(self, format: str, id: str, content: str):
-        """
-        Emit a diagram.
-
-        Args:
-            format:  Diagram type, e.g. "mermaid".
-            id:      Unique identifier for this diagram in the report.
-            content: Raw diagram source (Mermaid graph definition, etc.).
-        """
+        """Emit a diagram (e.g. Mermaid)."""
         self._emit({"type": "diagram", "format": format, "id": id, "content": content})
 
     def conclusion(self, text: str):
