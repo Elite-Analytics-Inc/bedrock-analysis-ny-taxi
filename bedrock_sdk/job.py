@@ -164,7 +164,7 @@ class BedrockJob:
     # ── Output methods — emit JSONL to stdout + buffer for R2 upload ────────
 
     def _emit(self, obj: dict):
-        obj["ts"] = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        obj["ts"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         line = json.dumps(obj)
         print(line, flush=True)
         self._log_buffer.append(line)
