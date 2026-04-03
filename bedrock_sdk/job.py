@@ -24,6 +24,8 @@ class BedrockJob:
         self.job_id = os.environ["BEDROCK_JOB_ID"]
         self.qe_url = os.environ.get("BEDROCK_QUERY_ENGINE_URL", "http://bedrock-query-engine:7777")
         self._conn = None  # lazy local DuckDB connection
+        self._log_buffer = []  # accumulated JSONL lines for R2 upload
+        self._last_flush = 0  # index of last flushed line
 
     def _local_conn(self):
         """Get or create a local DuckDB in-memory connection for processing."""
@@ -158,10 +160,33 @@ class BedrockJob:
             if resp.status not in (200, 201):
                 raise RuntimeError(f"Upload failed: HTTP {resp.status}")
 
-    # ── Output methods — all emit structured JSONL to stdout ────────────────
+    # ── Output methods — emit JSONL to stdout + buffer for R2 upload ────────
 
     def _emit(self, obj: dict):
-        print(json.dumps(obj), flush=True)
+        line = json.dumps(obj)
+        print(line, flush=True)
+        self._log_buffer.append(line)
+        # Flush to R2 every 10 lines to keep the SSE stream responsive.
+        if len(self._log_buffer) - self._last_flush >= 10:
+            self._flush_logs()
+
+    def _flush_logs(self):
+        """Upload accumulated log lines to run.jsonl in R2 via presigned URL."""
+        if not self._log_buffer:
+            return
+        try:
+            url = self._presign_upload("run.jsonl")
+            content = "\n".join(self._log_buffer) + "\n"
+            import urllib.request
+            req = urllib.request.Request(
+                url, data=content.encode("utf-8"), method="PUT",
+                headers={"Content-Type": "application/octet-stream"},
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                pass
+            self._last_flush = len(self._log_buffer)
+        except Exception as e:
+            print(f"[warn] log flush failed: {e}", flush=True)
 
     def update_progress(self, status: str, **kwargs):
         """
@@ -193,3 +218,4 @@ class BedrockJob:
     def complete(self):
         """Signal successful job completion. Must be the last call."""
         self._emit({"type": "status", "state": "complete"})
+        self._flush_logs()  # Final flush — ensures all lines are in R2
