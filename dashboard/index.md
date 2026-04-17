@@ -37,8 +37,8 @@ FROM tip_buckets
 ```sql revenue_filtered
 SELECT trip_date::DATE AS trip_date, trips, total_revenue, avg_fare
 FROM daily_revenue
-WHERE trip_date::DATE >= '${inputs.date_range.start}'::DATE
-  AND trip_date::DATE <= '${inputs.date_range.end}'::DATE
+WHERE ('${inputs.date_range.start}' = '' OR trip_date::DATE >= '${inputs.date_range.start}'::DATE)
+  AND ('${inputs.date_range.end}' = '' OR trip_date::DATE <= '${inputs.date_range.end}'::DATE)
 ORDER BY trip_date
 ```
 
@@ -66,7 +66,7 @@ ORDER BY pickups DESC
 {% date_range name="date_range" data="$daily_revenue" dates="trip_date" /%}
 
 {% grid cols=2 %}
-  {% line_chart data="$revenue_filtered" x="trip_date" y="total_revenue" title="Daily Revenue" yAxisTitle="Revenue ($)" colors=["#10B981"] /%}
+  {% line_chart data="$revenue_filtered" x="trip_date" y=["total_revenue"] title="Daily Revenue" yAxisTitle="Revenue ($)" colors=["#10B981"] /%}
   {% bar_chart data="$revenue_filtered" x="trip_date" y="trips" title="Daily Trip Count" yAxisTitle="Trips" colors=["#6366F1"] /%}
 {% /grid %}
 
