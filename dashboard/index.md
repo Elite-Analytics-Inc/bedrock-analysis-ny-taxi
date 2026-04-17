@@ -2,6 +2,8 @@
 title: NYC Yellow Taxi — Trip Analysis
 ---
 
+# NYC Yellow Taxi — Trip Analysis
+
 ```sql hourly_trips
 SELECT hour_of_day, trips, avg_fare, avg_distance_miles
 FROM hourly_trips ORDER BY hour_of_day
