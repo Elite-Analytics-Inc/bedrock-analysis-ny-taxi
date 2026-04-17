@@ -2,8 +2,7 @@
 NYC Yellow Taxi Analysis — Bedrock Job Definition
 ==================================================
 Queries the NY taxi Iceberg dataset through the Bedrock query engine
-(ABAC enforced), materialises summary Parquet files for the Evidence
-dashboard, and emits structured progress events visible in the Bedrock UI.
+(ABAC enforced), materialises summary Parquet files for the dashboard, and emits structured progress events visible in the Bedrock UI.
 """
 
 import os
@@ -26,7 +25,7 @@ job.fetch("taxi_trips", f"""
     SELECT tpep_pickup_datetime, tpep_dropoff_datetime,
            pu_location_id, do_location_id,
            trip_distance, total_amount, tip_amount
-    FROM catalog.transportation.nyc_taxi_trips
+    FROM bedrock.transportation.nyc_taxi_trips
     WHERE EXTRACT(year FROM tpep_pickup_datetime) = {year}
 """)
 
@@ -50,10 +49,10 @@ job.progress(90, "Writing result files…")
 
 job.write_parquet("hourly_trips", """
     SELECT
-        EXTRACT(hour FROM tpep_pickup_datetime)::INT AS hour_of_day,
+        EXTRACT(hour FROM tpep_pickup_datetime::TIMESTAMP)::INT AS hour_of_day,
         COUNT(*)                                      AS trips,
-        ROUND(AVG(total_amount), 2)                   AS avg_fare,
-        ROUND(AVG(trip_distance), 2)                  AS avg_distance_miles
+        ROUND(AVG(total_amount::DOUBLE), 2)              AS avg_fare,
+        ROUND(AVG(trip_distance::DOUBLE), 2)             AS avg_distance_miles
     FROM taxi_trips
     GROUP BY hour_of_day
     ORDER BY hour_of_day
@@ -63,8 +62,8 @@ job.write_parquet("top_zones", f"""
     SELECT
         pu_location_id                        AS zone_id,
         COUNT(*)                              AS pickups,
-        ROUND(AVG(total_amount), 2)           AS avg_fare,
-        ROUND(AVG(tip_amount / NULLIF(total_amount,0)) * 100, 1) AS tip_pct
+        ROUND(AVG(total_amount::DOUBLE), 2)   AS avg_fare,
+        ROUND(AVG(tip_amount::DOUBLE / NULLIF(total_amount::DOUBLE,0)) * 100, 1) AS tip_pct
     FROM taxi_trips
     GROUP BY pu_location_id
     HAVING COUNT(*) >= {min_trips}
@@ -75,27 +74,27 @@ job.write_parquet("top_zones", f"""
 job.write_parquet("tip_buckets", """
     SELECT
         CASE
-            WHEN tip_amount = 0                              THEN 'No tip'
-            WHEN tip_amount / total_amount < 0.10            THEN '< 10%'
-            WHEN tip_amount / total_amount < 0.15            THEN '10-15%'
-            WHEN tip_amount / total_amount < 0.20            THEN '15-20%'
-            WHEN tip_amount / total_amount < 0.25            THEN '20-25%'
-            ELSE                                                  '25%+'
+            WHEN tip_amount::DOUBLE = 0                              THEN 'No tip'
+            WHEN tip_amount::DOUBLE / total_amount::DOUBLE < 0.10    THEN '< 10%'
+            WHEN tip_amount::DOUBLE / total_amount::DOUBLE < 0.15    THEN '10-15%'
+            WHEN tip_amount::DOUBLE / total_amount::DOUBLE < 0.20    THEN '15-20%'
+            WHEN tip_amount::DOUBLE / total_amount::DOUBLE < 0.25    THEN '20-25%'
+            ELSE                                                          '25%+'
         END                                                  AS tip_bucket,
         COUNT(*)                                             AS trips,
         ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 1)  AS pct_of_total
     FROM taxi_trips
-    WHERE total_amount > 0
+    WHERE total_amount::DOUBLE > 0
     GROUP BY tip_bucket
-    ORDER BY MIN(tip_amount / NULLIF(total_amount,1))
+    ORDER BY MIN(tip_amount::DOUBLE / NULLIF(total_amount::DOUBLE,1))
 """)
 
 job.write_parquet("daily_revenue", """
     SELECT
-        tpep_pickup_datetime::DATE            AS trip_date,
+        tpep_pickup_datetime::TIMESTAMP::DATE  AS trip_date,
         COUNT(*)                              AS trips,
-        ROUND(SUM(total_amount), 0)           AS total_revenue,
-        ROUND(AVG(total_amount), 2)           AS avg_fare
+        ROUND(SUM(total_amount::DOUBLE), 0)    AS total_revenue,
+        ROUND(AVG(total_amount::DOUBLE), 2)   AS avg_fare
     FROM taxi_trips
     GROUP BY trip_date
     ORDER BY trip_date
@@ -114,13 +113,29 @@ job.update_progress("running_analysis", progress_pct=95,
                     })
 
 hourly = conn.execute("""
-    SELECT hour_of_day, trips, avg_fare, avg_distance_miles
-    FROM read_parquet('/tmp/hourly_trips.parquet')
+    SELECT
+        EXTRACT(hour FROM tpep_pickup_datetime::TIMESTAMP)::INT AS hour_of_day,
+        COUNT(*) AS trips,
+        ROUND(AVG(total_amount::DOUBLE), 2) AS avg_fare,
+        ROUND(AVG(trip_distance::DOUBLE), 2) AS avg_distance_miles
+    FROM taxi_trips
+    GROUP BY hour_of_day
+    ORDER BY hour_of_day
 """).fetchall()
 
 tips = conn.execute("""
-    SELECT tip_bucket, trips, pct_of_total
-    FROM read_parquet('/tmp/tip_buckets.parquet')
+    SELECT
+        CASE
+            WHEN tip_amount::DOUBLE = 0 THEN 'No tip'
+            WHEN tip_amount::DOUBLE / total_amount::DOUBLE < 0.15 THEN '< 15%'
+            WHEN tip_amount::DOUBLE / total_amount::DOUBLE < 0.25 THEN '15-25%'
+            ELSE '25%+'
+        END AS tip_bucket,
+        COUNT(*) AS trips,
+        ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 1) AS pct_of_total
+    FROM taxi_trips
+    WHERE total_amount::DOUBLE > 0
+    GROUP BY tip_bucket
 """).fetchall()
 
 job.table(
@@ -137,4 +152,5 @@ job.table(
     rows=[[r[0], f"{r[1]:,}", f"{r[2]}%"] for r in tips],
 )
 
+job.write_dashboard("dashboard/index.md")
 job.complete()

@@ -18,6 +18,7 @@ RUN pip install --no-cache-dir \
 COPY bedrock_sdk/ /bedrock_sdk/
 
 COPY analysis.py .
+COPY dashboard/ dashboard/
 
 CMD ["python", "analysis.py"]
 # duckdb 1.2.2, fastavro 1.9.7
